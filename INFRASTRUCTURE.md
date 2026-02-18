@@ -13,6 +13,7 @@ All objects are located in `TEMP.OCHOY` schema.
 | `STREAMLIT_APPS_BASE` | Table | Base table storing all Streamlit app metadata |
 | `STREAMLIT_APPS_INVENTORY` | View | Simple view over the base table |
 | `STREAMLIT_APPS_WITH_ORG` | View | Enriched view with org hierarchy data |
+| `STREAMLIT_APPS_PS_ONLY` | View | PS/SD team apps only (filtered by department) |
 | `REFRESH_STREAMLIT_APPS()` | Procedure | Refreshes the base table |
 | `REFRESH_STREAMLIT_INVENTORY` | Task | Daily scheduled refresh (6 AM UTC) |
 
@@ -168,6 +169,20 @@ LEFT JOIN fivetran.salesforce.user u
     AND u.IS_ACTIVE = true
 LEFT JOIN temp.ssubramanian.resolve_org o 
     ON LOWER(o.RESOURCE_NAME) = LOWER(COALESCE(i.creator_display_name, u.NAME));
+```
+
+### STREAMLIT_APPS_PS_ONLY
+
+Filtered view showing only apps created by Professional Services (PS/SD) team members:
+
+```sql
+CREATE OR REPLACE VIEW TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY AS
+SELECT a.*
+FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG a
+JOIN FIVETRAN.SALESFORCE.USER u 
+    ON LOWER(u.EMAIL) = LOWER(a.creator_email)
+WHERE u.IS_ACTIVE = true 
+  AND u.DEPARTMENT = 'Professional Services';
 ```
 
 ## Task

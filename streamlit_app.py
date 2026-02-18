@@ -7,8 +7,11 @@ st.set_page_config(layout="wide", page_title="Streamlit App Inventory")
 session = get_active_session()
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_all_apps():
-    df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG").to_pandas()
+def load_apps(ps_only: bool):
+    if ps_only:
+        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY").to_pandas()
+    else:
+        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG").to_pandas()
     return df
 
 def extract_org_leaders(df):
@@ -18,16 +21,24 @@ def extract_org_leaders(df):
         leaders.update([p.strip() for p in parts if p.strip()])
     return sorted(list(leaders))
 
-st.title(":snowflake: Streamlit App Inventory")
-st.markdown("Browse Streamlit applications in Snowhouse")
+st.sidebar.header("Team Filter")
+ps_only = st.sidebar.toggle("PS/SD Apps Only", value=True, help="Show only apps created by Professional Services team")
+
+if ps_only:
+    st.title(":snowflake: PS/SD Streamlit App Inventory")
+    st.markdown("Browse Streamlit applications created by **Professional Services / Service Delivery** team")
+else:
+    st.title(":snowflake: Streamlit App Inventory")
+    st.markdown("Browse all Streamlit applications in Snowhouse")
 
 with st.spinner("Loading apps (cached for 1 hour)..."):
-    df_apps = load_all_apps()
+    df_apps = load_apps(ps_only)
 
 if df_apps.empty:
     st.warning("No Streamlit apps found.")
     st.stop()
 
+st.sidebar.markdown("---")
 st.sidebar.header("Filter Apps")
 
 filter_type = st.sidebar.radio(
@@ -82,7 +93,10 @@ if search_term:
     ]
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Total apps in account: {len(df_apps):,}")
+if ps_only:
+    st.sidebar.caption(f"PS/SD apps: {len(df_apps):,}")
+else:
+    st.sidebar.caption(f"Total apps in account: {len(df_apps):,}")
 st.sidebar.caption(f"With creator info: {df_apps['CREATED_BY_USER'].notna().sum():,}")
 st.sidebar.caption(f"With org info: {df_apps['ORG_HIERARCHY'].notna().sum():,}")
 
