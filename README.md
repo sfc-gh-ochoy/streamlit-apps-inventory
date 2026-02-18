@@ -25,12 +25,12 @@ Requires [Snowflake CLI](https://docs.snowflake.com/en/developer-guide/snowflake
 
 **Deploy to DEV (for testing):**
 ```bash
-snow streamlit deploy ps_streamlit_app_inventory_dev
+./deploy.sh dev
 ```
 
 **Deploy to PROD:**
 ```bash
-snow streamlit deploy ps_streamlit_app_inventory
+./deploy.sh prod
 ```
 
 ## URLs
