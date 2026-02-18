@@ -1,0 +1,31 @@
+definition_version: 2
+entities:
+  # Production - current users
+  ps_streamlit_app_inventory:
+    type: streamlit
+    identifier:
+      name: PS_STREAMLIT_APP_INVENTORY
+      schema: STREAMLIT
+      database: SNOWPUBLIC
+    title: "PS Streamlit App Inventory"
+    query_warehouse: SNOWADHOC
+    main_file: streamlit_app.py
+    stage: SNOWPUBLIC.STREAMLIT.streamlit_inventory_stage
+    artifacts:
+      - streamlit_app.py
+      - environment.yml
+
+  # Development/Test - for new features
+  ps_streamlit_app_inventory_dev:
+    type: streamlit
+    identifier:
+      name: PS_STREAMLIT_APP_INVENTORY_DEV
+      schema: STREAMLIT
+      database: SNOWPUBLIC
+    title: "PS Streamlit App Inventory (DEV)"
+    query_warehouse: SNOWADHOC
+    main_file: streamlit_app.py
+    stage: SNOWPUBLIC.STREAMLIT.streamlit_inventory_stage_dev
+    artifacts:
+      - streamlit_app.py
+      - environment.yml

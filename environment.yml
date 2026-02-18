@@ -1,0 +1,7 @@
+name: streamlit-app-inventory
+channels:
+  - snowflake
+dependencies:
+  - snowflake-snowpark-python
+  - streamlit
+  - pandas
