@@ -23,7 +23,12 @@ SHOW STREAMLITS IN ACCOUNT
         │
         ▼
 ┌─────────────────────────────────────────┐
-│  SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY │  (creator user from DDL history)
+│  Creator Source 1 (Primary):            │
+│  SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY │  (DDL history - 12 month limit)
+│                                         │
+│  Creator Source 2 (Fallback):           │
+│  Title pattern extraction               │  (e.g., "OCHOY 2026-02-18 12:00pm")
+│                                         │
 │  SNOWFLAKE.ACCOUNT_USAGE.USERS          │  (email, display name)
 └─────────────────────────────────────────┘
         │
@@ -45,6 +50,10 @@ SHOW STREAMLITS IN ACCOUNT
 
 ## Stored Procedure: REFRESH_STREAMLIT_APPS()
 
+Uses two sources for creator identification:
+1. **ACCESS_HISTORY** (DDL tracking) - limited to 12 months retention
+2. **Title pattern** - extracts username from titles like "USERNAME YYYY-MM-DD HH:MMam/pm" (no time limit)
+
 ```sql
 CREATE OR REPLACE PROCEDURE TEMP.OCHOY.REFRESH_STREAMLIT_APPS()
 RETURNS STRING
@@ -53,12 +62,10 @@ EXECUTE AS CALLER
 AS
 '
 BEGIN
-    -- Step 1: Get all Streamlit apps in the account
+    -- Step 1: Get all Streamlit apps from SHOW command
     SHOW STREAMLITS IN ACCOUNT;
-    
     LET qid := LAST_QUERY_ID();
     
-    -- Step 2: Parse SHOW results into temp table
     CREATE OR REPLACE TEMP TABLE TEMP.OCHOY._tmp_streamlits AS 
     SELECT 
         "name",
@@ -75,8 +82,8 @@ BEGIN
         TO_TIMESTAMP_LTZ(TRY_PARSE_JSON("comment"):lastUpdatedTime::NUMBER / 1000) AS last_updated_time
     FROM TABLE(RESULT_SCAN(:qid));
     
-    -- Step 3: Get creator info from ACCESS_HISTORY (first CREATE per app)
-    CREATE OR REPLACE TEMP TABLE TEMP.OCHOY._tmp_creators AS
+    -- Step 2: Get creator info from ACCESS_HISTORY (first CREATE per app) - 12 month limit
+    CREATE OR REPLACE TEMP TABLE TEMP.OCHOY._tmp_creators_access_history AS
     SELECT 
         object_modified_by_ddl:objectName::STRING AS streamlit_fqn,
         user_name,
@@ -85,6 +92,17 @@ BEGIN
     WHERE object_modified_by_ddl:objectDomain::STRING = ''Streamlit''
       AND object_modified_by_ddl:operationType::STRING = ''CREATE''
     QUALIFY ROW_NUMBER() OVER (PARTITION BY streamlit_fqn ORDER BY query_start_time ASC) = 1;
+    
+    -- Step 3: Get creator info from title pattern (USERNAME YYYY-MM-DD...) - no time limit
+    CREATE OR REPLACE TEMP TABLE TEMP.OCHOY._tmp_creators_title AS
+    SELECT DISTINCT
+        s.location AS streamlit_fqn,
+        u.NAME AS user_name
+    FROM TEMP.OCHOY._tmp_streamlits s
+    JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u 
+        ON u.NAME = UPPER(SPLIT_PART(s."title", '' '', 1))
+        AND u.DELETED_ON IS NULL
+    WHERE s."title" LIKE ''% 202%'';
     
     -- Step 4: Truncate and reload base table with joined data
     TRUNCATE TABLE TEMP.OCHOY.STREAMLIT_APPS_BASE;
@@ -106,14 +124,16 @@ BEGIN
         s."url_id",
         s.last_updated_user_id,
         s.last_updated_time,
-        c.user_name AS created_by_user,
-        c.query_start_time AS created_at_from_history,
+        COALESCE(c1.user_name, c2.user_name) AS created_by_user,
+        c1.query_start_time AS created_at_from_history,
         CURRENT_TIMESTAMP(),
         u.EMAIL AS creator_email,
         u.DISPLAY_NAME AS creator_display_name
     FROM TEMP.OCHOY._tmp_streamlits s
-    LEFT JOIN TEMP.OCHOY._tmp_creators c ON c.streamlit_fqn = s.location
-    LEFT JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON u.NAME = c.user_name AND u.DELETED_ON IS NULL;
+    LEFT JOIN TEMP.OCHOY._tmp_creators_access_history c1 ON c1.streamlit_fqn = s.location
+    LEFT JOIN TEMP.OCHOY._tmp_creators_title c2 ON c2.streamlit_fqn = s.location
+    LEFT JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u 
+        ON u.NAME = COALESCE(c1.user_name, c2.user_name) AND u.DELETED_ON IS NULL;
     
     RETURN ''Refreshed '' || (SELECT COUNT(*) FROM TEMP.OCHOY.STREAMLIT_APPS_BASE) || '' apps'';
 END;
@@ -214,6 +234,7 @@ CALL TEMP.OCHOY.REFRESH_STREAMLIT_APPS();
 
 ## Data Coverage Notes
 
-- **ACCESS_HISTORY** has 365-day retention, so apps created >1 year ago won't have creator info
+- **ACCESS_HISTORY** has 365-day retention, so apps created >1 year ago won't have creator info from DDL tracking
+- **Title pattern fallback** extracts username from titles like "USERNAME YYYY-MM-DD HH:MMam/pm" - works for apps of any age
 - **Org hierarchy** only includes employees in the `resolve_org` table
 - Email matching joins Snowflake user email → Salesforce user email → Org chart
