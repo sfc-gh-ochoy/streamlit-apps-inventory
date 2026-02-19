@@ -68,8 +68,16 @@ with col_chart2:
         chart_data = top10.set_index('APP')[['EXECUTION_COUNT']]
         chart_data.columns = ['Executions']
         st.bar_chart(chart_data, height=250, horizontal=True)
+        
+        top10_sorted = top10.sort_values('EXECUTION_COUNT', ascending=False)
+        selected_top_app = st.selectbox(
+            "Select app for details",
+            options=[""] + top10_sorted['STREAMLIT_FQN'].tolist(),
+            format_func=lambda x: "Click to select an app..." if x == "" else f"{x.split('.')[-1]} ({top10_sorted[top10_sorted['STREAMLIT_FQN']==x]['EXECUTION_COUNT'].values[0]:,} runs)"
+        )
     else:
         st.info("No usage data available")
+        selected_top_app = ""
 
 st.markdown("---")
 
@@ -125,6 +133,9 @@ if search_term:
         df_filtered['LOCATION'].str.lower().str.contains(search_lower, na=False)
     ]
 
+if selected_top_app:
+    df_filtered = df_apps[df_apps['LOCATION'] == selected_top_app].copy()
+
 with st.sidebar.expander("Stats & Actions", expanded=False):
     if ps_only:
         st.caption(f"PS/SD apps: {len(df_apps):,}")
@@ -138,25 +149,35 @@ with st.sidebar.expander("Stats & Actions", expanded=False):
         st.rerun()
 
 col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric(f"{filter_type}", selected if 'selected' in dir() else "All")
-with col2:
-    st.metric("Apps Found", len(df_filtered))
-with col3:
-    with_creator = len(df_filtered[df_filtered['CREATED_BY_USER'].notna()])
-    st.metric("With Creator Info", with_creator)
+if selected_top_app:
+    app_usage = df_usage[df_usage['STREAMLIT_FQN'] == selected_top_app]
+    with col1:
+        st.metric("Selected App", selected_top_app.split('.')[-1])
+    with col2:
+        st.metric("Executions (90d)", f"{app_usage['EXECUTION_COUNT'].values[0]:,}" if not app_usage.empty else "N/A")
+    with col3:
+        st.metric("Unique Users", f"{app_usage['UNIQUE_USERS'].values[0]:,}" if not app_usage.empty else "N/A")
+else:
+    with col1:
+        st.metric(f"{filter_type}", selected if 'selected' in dir() else "All")
+    with col2:
+        st.metric("Apps Found", len(df_filtered))
+    with col3:
+        with_creator = len(df_filtered[df_filtered['CREATED_BY_USER'].notna()])
+        st.metric("With Creator Info", with_creator)
 
 st.markdown("---")
 
 display_df = df_filtered[[
-    'TITLE', 'LOCATION', 'LAST_UPDATED_TIME', 
+    'TITLE', 'NAME', 'LOCATION', 'LAST_UPDATED_TIME', 
     'CREATED_BY_USER', 'CREATOR_FULL_NAME', 'MANAGER_NAME',
     'OWNER_ROLE', 'DATABASE_NAME'
 ]].copy()
 
 base_url = "https://app.snowflake.com/sfcogsops/snowhouse_aws_us_west_2/#/streamlit-apps/"
 display_df['APP_URL'] = base_url + display_df['LOCATION']
-display_df['TITLE'] = display_df['TITLE'].fillna('None').replace('', 'None')
+display_df['TITLE'] = display_df.apply(lambda row: row['TITLE'] if row['TITLE'] and row['TITLE'].strip() else row['NAME'], axis=1)
+display_df = display_df.drop(columns=['NAME'])
 
 display_df.columns = ['Title', 'Location', 'Last Updated', 'Creator', 'Creator Name', 'Manager', 'Owner Role', 'Database', 'App URL']
 display_df = display_df.sort_values('Last Updated', ascending=False, na_position='last')
