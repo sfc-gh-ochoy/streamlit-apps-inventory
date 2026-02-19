@@ -8,7 +8,7 @@ entities:
       schema: STREAMLIT
       database: SNOWPUBLIC
     title: "PS Streamlit App Inventory"
-    query_warehouse: SNOWADHOC
+    query_warehouse: SNOWHOUSE
     main_file: streamlit_app.py
     stage: SNOWPUBLIC.STREAMLIT.streamlit_inventory_stage
     artifacts:
@@ -23,7 +23,7 @@ entities:
       schema: STREAMLIT
       database: SNOWPUBLIC
     title: "PS Streamlit App Inventory (DEV)"
-    query_warehouse: SNOWADHOC
+    query_warehouse: SNOWHOUSE
     main_file: streamlit_app.py
     stage: SNOWPUBLIC.STREAMLIT.streamlit_inventory_stage_dev
     artifacts:

@@ -28,8 +28,8 @@ def extract_org_leaders(df):
         leaders.update([p.strip() for p in parts if p.strip()])
     return sorted(list(leaders))
 
-with st.sidebar.expander("Team Filter", expanded=True):
-    ps_only = st.toggle("PS/SD Apps Only", value=True, help="Show only apps created by Professional Services team")
+st.sidebar.header("Team Filter")
+ps_only = st.sidebar.toggle("PS/SD Apps Only", value=True, help="Show only apps created by Professional Services team")
 
 if ps_only:
     st.title(":snowflake: PS/SD Streamlit App Inventory")
@@ -73,49 +73,51 @@ with col_chart2:
 
 st.markdown("---")
 
-with st.sidebar.expander("Filter Apps", expanded=True):
-    filter_type = st.radio(
-        "Filter by",
-        options=["Organization", "Direct Manager", "Owner Role", "Creator", "Database"],
-        index=0
-    )
+st.sidebar.markdown("---")
+st.sidebar.header("Filter Apps")
 
-    if filter_type == "Organization":
-        org_leaders = extract_org_leaders(df_apps)
-        selected = st.selectbox("Select Organization Leader", options=["All"] + org_leaders)
-        if selected != "All":
-            df_filtered = df_apps[df_apps['ORG_HIERARCHY'].str.contains(selected, na=False, regex=False)].copy()
-        else:
-            df_filtered = df_apps.copy()
+filter_type = st.sidebar.radio(
+    "Filter by",
+    options=["Manager", "Organization", "Owner Role", "Creator", "Database"],
+    index=0
+)
 
-    elif filter_type == "Direct Manager":
-        managers = sorted(df_apps['MANAGER_NAME'].dropna().unique().tolist())
-        selected = st.selectbox("Select Direct Manager", options=["All"] + managers)
-        if selected != "All":
-            df_filtered = df_apps[df_apps['MANAGER_NAME'] == selected].copy()
-        else:
-            df_filtered = df_apps.copy()
-
-    elif filter_type == "Owner Role":
-        options = sorted(df_apps['OWNER_ROLE'].dropna().unique().tolist())
-        default_idx = options.index('TECHNICAL_ACCOUNT_MANAGER') if 'TECHNICAL_ACCOUNT_MANAGER' in options else 0
-        selected = st.selectbox("Select Owner Role", options=options, index=default_idx)
-        df_filtered = df_apps[df_apps['OWNER_ROLE'] == selected].copy()
-
-    elif filter_type == "Creator":
-        creators = sorted(df_apps['CREATED_BY_USER'].dropna().unique().tolist())
-        selected = st.selectbox("Select Creator", options=["All"] + creators)
-        if selected != "All":
-            df_filtered = df_apps[df_apps['CREATED_BY_USER'] == selected].copy()
-        else:
-            df_filtered = df_apps[df_apps['CREATED_BY_USER'].notna()].copy()
-
+if filter_type == "Manager":
+    managers = sorted(df_apps['MANAGER_NAME'].dropna().unique().tolist())
+    selected = st.sidebar.selectbox("Select Manager", options=["All"] + managers)
+    if selected != "All":
+        df_filtered = df_apps[df_apps['MANAGER_NAME'] == selected].copy()
     else:
-        options = sorted(df_apps['DATABASE_NAME'].dropna().unique().tolist())
-        selected = st.selectbox("Select Database", options=options)
-        df_filtered = df_apps[df_apps['DATABASE_NAME'] == selected].copy()
+        df_filtered = df_apps.copy()
 
-    search_term = st.text_input("Search within results", placeholder="Search by title, name...")
+elif filter_type == "Organization":
+    org_leaders = extract_org_leaders(df_apps)
+    selected = st.sidebar.selectbox("Select Organization Leader", options=["All"] + org_leaders)
+    if selected != "All":
+        df_filtered = df_apps[df_apps['ORG_HIERARCHY'].str.contains(selected, na=False, regex=False)].copy()
+    else:
+        df_filtered = df_apps.copy()
+
+elif filter_type == "Owner Role":
+    options = sorted(df_apps['OWNER_ROLE'].dropna().unique().tolist())
+    default_idx = options.index('TECHNICAL_ACCOUNT_MANAGER') if 'TECHNICAL_ACCOUNT_MANAGER' in options else 0
+    selected = st.sidebar.selectbox("Select Owner Role", options=options, index=default_idx)
+    df_filtered = df_apps[df_apps['OWNER_ROLE'] == selected].copy()
+
+elif filter_type == "Creator":
+    creators = sorted(df_apps['CREATED_BY_USER'].dropna().unique().tolist())
+    selected = st.sidebar.selectbox("Select Creator", options=["All"] + creators)
+    if selected != "All":
+        df_filtered = df_apps[df_apps['CREATED_BY_USER'] == selected].copy()
+    else:
+        df_filtered = df_apps[df_apps['CREATED_BY_USER'].notna()].copy()
+
+else:
+    options = sorted(df_apps['DATABASE_NAME'].dropna().unique().tolist())
+    selected = st.sidebar.selectbox("Select Database", options=options)
+    df_filtered = df_apps[df_apps['DATABASE_NAME'] == selected].copy()
+
+search_term = st.sidebar.text_input("Search within results", placeholder="Search by title, name...")
 
 if search_term:
     search_lower = search_term.lower()
@@ -125,17 +127,17 @@ if search_term:
         df_filtered['LOCATION'].str.lower().str.contains(search_lower, na=False)
     ]
 
-with st.sidebar.expander("Stats & Actions", expanded=False):
-    if ps_only:
-        st.caption(f"PS/SD apps: {len(df_apps):,}")
-    else:
-        st.caption(f"Total apps in account: {len(df_apps):,}")
-    st.caption(f"With creator info: {df_apps['CREATED_BY_USER'].notna().sum():,}")
-    st.caption(f"With org info: {df_apps['ORG_HIERARCHY'].notna().sum():,}")
+st.sidebar.markdown("---")
+if ps_only:
+    st.sidebar.caption(f"PS/SD apps: {len(df_apps):,}")
+else:
+    st.sidebar.caption(f"Total apps in account: {len(df_apps):,}")
+st.sidebar.caption(f"With creator info: {df_apps['CREATED_BY_USER'].notna().sum():,}")
+st.sidebar.caption(f"With org info: {df_apps['ORG_HIERARCHY'].notna().sum():,}")
 
-    if st.button("Clear Cache & Reload"):
-        st.cache_data.clear()
-        st.rerun()
+if st.sidebar.button("Clear Cache & Reload"):
+    st.cache_data.clear()
+    st.rerun()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -162,12 +164,13 @@ display_df.columns = ['Title', 'Location', 'Last Updated', 'Creator', 'Creator N
 display_df = display_df.sort_values('Last Updated', ascending=False, na_position='last')
 
 st.dataframe(
-    display_df[['Title', 'App URL', 'Last Updated', 'Creator', 'Creator Name', 'Manager', 'Owner Role', 'Database']],
+    display_df[['Title', 'App URL', 'Location', 'Last Updated', 'Creator', 'Creator Name', 'Manager', 'Owner Role', 'Database']],
     use_container_width=True,
     hide_index=True,
     column_config={
         "Title": st.column_config.TextColumn("App Title", width="medium"),
-        "App URL": st.column_config.LinkColumn("Location", width="large"),
+        "App URL": st.column_config.LinkColumn("Open App", display_text="Open", width="small"),
+        "Location": st.column_config.TextColumn("Location", width="large"),
         "Last Updated": st.column_config.DatetimeColumn("Last Updated", format="YYYY-MM-DD HH:mm"),
         "Creator": st.column_config.TextColumn("Creator", width="small"),
         "Creator Name": st.column_config.TextColumn("Creator Name", width="medium"),

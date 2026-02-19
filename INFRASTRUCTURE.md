@@ -14,6 +14,8 @@ All objects are located in `TEMP.OCHOY` schema.
 | `STREAMLIT_APPS_INVENTORY` | View | Simple view over the base table |
 | `STREAMLIT_APPS_WITH_ORG` | View | Enriched view with org hierarchy data |
 | `STREAMLIT_APPS_PS_ONLY` | View | PS/SD team apps only (filtered by department) |
+| `STREAMLIT_APP_USAGE` | View | App usage metrics from QUERY_HISTORY (90 days) |
+| `STREAMLIT_APP_USAGE_PS_ONLY` | View | Usage metrics for PS/SD apps only |
 | `REFRESH_STREAMLIT_APPS()` | Procedure | Refreshes the base table |
 | `REFRESH_STREAMLIT_INVENTORY` | Task | Daily scheduled refresh (6 AM UTC) |
 
@@ -173,16 +175,42 @@ LEFT JOIN temp.ssubramanian.resolve_org o
 
 ### STREAMLIT_APPS_PS_ONLY
 
-Filtered view showing only apps created by Professional Services (PS/SD) team members:
+Filtered view showing apps created by members of Professional Services org (under Roxanne McKinnon):
 
 ```sql
 CREATE OR REPLACE VIEW TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY AS
 SELECT a.*
 FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG a
-JOIN FIVETRAN.SALESFORCE.USER u 
-    ON LOWER(u.EMAIL) = LOWER(a.creator_email)
-WHERE u.IS_ACTIVE = true 
-  AND u.DEPARTMENT = 'Professional Services';
+WHERE a.ORG_HIERARCHY LIKE '%Roxanne McKinnon%';
+```
+
+### STREAMLIT_APP_USAGE
+
+Usage metrics from QUERY_HISTORY (past 90 days):
+
+```sql
+CREATE OR REPLACE VIEW TEMP.OCHOY.STREAMLIT_APP_USAGE AS
+SELECT 
+    TRY_PARSE_JSON(QUERY_TAG):StreamlitName::STRING as streamlit_fqn,
+    COUNT(*) as execution_count,
+    COUNT(DISTINCT USER_NAME) as unique_users
+FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+WHERE START_TIME > DATEADD(day, -90, CURRENT_TIMESTAMP())
+  AND QUERY_TYPE = 'EXECUTE_STREAMLIT'
+  AND TRY_PARSE_JSON(QUERY_TAG):StreamlitName IS NOT NULL
+GROUP BY 1;
+```
+
+### STREAMLIT_APP_USAGE_PS_ONLY
+
+Usage metrics filtered to PS/SD team apps:
+
+```sql
+CREATE OR REPLACE VIEW TEMP.OCHOY.STREAMLIT_APP_USAGE_PS_ONLY AS
+SELECT u.*
+FROM TEMP.OCHOY.STREAMLIT_APP_USAGE u
+JOIN TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY a 
+    ON u.streamlit_fqn = a.LOCATION;
 ```
 
 ## Task
@@ -191,7 +219,7 @@ Daily refresh at 6 AM UTC:
 
 ```sql
 CREATE OR REPLACE TASK TEMP.OCHOY.REFRESH_STREAMLIT_INVENTORY
-    WAREHOUSE = SNOWADHOC
+    WAREHOUSE = SNOWHOUSE
     SCHEDULE = 'USING CRON 0 6 * * * UTC'
 AS
     CALL TEMP.OCHOY.REFRESH_STREAMLIT_APPS();
