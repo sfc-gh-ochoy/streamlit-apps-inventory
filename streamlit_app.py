@@ -13,9 +13,9 @@ STATUSES = ["", "Active", "In Development", "Deprecated", "Archived"]
 @st.cache_data(ttl=28800, show_spinner=False)
 def load_apps(ps_only: bool):
     if ps_only:
-        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY").to_pandas()
+        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_PS_ONLY_MAT").to_pandas()
     else:
-        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG").to_pandas()
+        df = session.sql("SELECT * FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG_MAT").to_pandas()
     return df
 
 @st.cache_data(ttl=28800, show_spinner=False)
