@@ -1,7 +1,7 @@
 # Stored Procedures & Database Objects
 
-> **Last Updated**: 2026-02-19
-> **Version**: 1.0 (Working)
+> **Last Updated**: 2026-02-20
+> **Version**: 1.1 (Working)
 
 This document contains the exact DDL for all database objects powering the Streamlit App Inventory. Use this to restore objects if needed.
 
@@ -251,7 +251,153 @@ GRANT SELECT ON TABLE TEMP.SSUBRAMANIAN.RESOLVE_ORG TO ROLE PUBLIC;
 
 ---
 
-## 5. Scheduled Task
+## 5. Metadata Table: STREAMLIT_APP_METADATA
+
+Stores editable metadata (description, category, status) for apps.
+
+```sql
+CREATE TABLE IF NOT EXISTS TEMP.OCHOY.STREAMLIT_APP_METADATA (
+    LOCATION VARCHAR(16777216) PRIMARY KEY,
+    DESCRIPTION VARCHAR(16777216),
+    CATEGORY VARCHAR(100),
+    STATUS VARCHAR(50),
+    UPDATED_BY VARCHAR(100),
+    UPDATED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+GRANT SELECT, INSERT, UPDATE ON TABLE TEMP.OCHOY.STREAMLIT_APP_METADATA TO ROLE PUBLIC;
+```
+
+### Valid Values
+
+| Column | Options |
+|--------|---------|
+| CATEGORY | Analytics, Operations, Customer-facing, Internal Tool, Demo, Other |
+| STATUS | Active, In Development, Deprecated, Archived |
+
+---
+
+## 6. Stored Procedure: GENERATE_APP_DESCRIPTION
+
+Uses Cortex AI to analyze Streamlit app source code and generate a 1-2 sentence description.
+
+### How it Works
+
+1. Parses the app location (DATABASE.SCHEMA.NAME)
+2. Runs `DESCRIBE STREAMLIT` to get the source stage path
+3. Reads the main Python file from the stage
+4. Truncates code to ~4000 characters (token limit safety)
+5. Calls `SNOWFLAKE.CORTEX.COMPLETE('llama3.1-70b', prompt)` to generate description
+6. Returns the generated description (or error message)
+
+### Limitations
+
+- Only reads the main entry file (app.py, streamlit_app.py, etc.)
+- Apps with minimal code (<20 chars) will return an error
+- Some apps have inaccessible stages (permission issues, special stage types)
+- Multi-file apps only analyze the entry point, not imported modules
+
+```sql
+CREATE OR REPLACE PROCEDURE TEMP.OCHOY.GENERATE_APP_DESCRIPTION(APP_LOCATION VARCHAR)
+RETURNS VARCHAR
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.11'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'generate_description'
+EXECUTE AS CALLER
+AS $$
+import snowflake.snowpark as snowpark
+
+def generate_description(session: snowpark.Session, app_location: str) -> str:
+    try:
+        parts = app_location.split('.')
+        if len(parts) != 3:
+            return f"Error: Invalid location format: {app_location}"
+        
+        db, schema, name = parts
+        
+        desc_result = session.sql(f"DESCRIBE STREAMLIT {db}.{schema}.{name}").collect()
+        if not desc_result:
+            return "Error: Could not describe streamlit app"
+        
+        row = desc_result[0].as_dict()
+        source_stage = row.get('default_version_source_location_uri')
+        main_file = row.get('main_file') or 'streamlit_app.py'
+        
+        if not source_stage or source_stage == 'None':
+            return "Error: No source stage found for this app"
+        
+        stage_path = source_stage.strip().rstrip('/')
+        
+        try:
+            list_result = session.sql(f"LIST {stage_path}/").collect()
+        except Exception as e:
+            return f"Error: Cannot access stage {stage_path}: {str(e)}"
+        
+        if not list_result:
+            return f"Error: No files found in stage {stage_path}"
+        
+        try:
+            file_path = f"{stage_path}/{main_file}"
+            code_result = session.sql(f"SELECT $1 as code FROM {file_path}").collect()
+            
+            if code_result:
+                code_content = '\n'.join([str(row['CODE']) for row in code_result if row['CODE']])
+            else:
+                return f"Error: Could not read file content from {file_path}"
+                
+        except Exception as e:
+            return f"Error: Failed to read file {main_file}: {str(e)}"
+        
+        if not code_content or len(code_content.strip()) < 20:
+            return f"Error: App has minimal code ({len(code_content.strip())} chars) - cannot generate meaningful description"
+        
+        truncated_code = code_content[:4000]
+        escaped_code = truncated_code.replace("\\", "\\\\").replace("'", "''")
+        
+        prompt = "Analyze this Streamlit app code and write a 1-2 sentence description of what the app does. Focus on the main purpose and key features. Be concise and professional. Do not start with This app or This Streamlit app. Code: " + escaped_code
+        
+        try:
+            sql = "SELECT SNOWFLAKE.CORTEX.COMPLETE('llama3.1-70b', '" + prompt.replace("'", "''") + "') as description"
+            result = session.sql(sql).collect()
+            
+            if result and result[0]['DESCRIPTION']:
+                return result[0]['DESCRIPTION'].strip()
+            else:
+                return "Error: AI generation returned empty result"
+        except Exception as e:
+            return f"Error: AI generation failed: {str(e)}"
+            
+    except Exception as e:
+        return f"Error: {str(e)}"
+$$;
+
+GRANT USAGE ON PROCEDURE TEMP.OCHOY.GENERATE_APP_DESCRIPTION(VARCHAR) TO ROLE PUBLIC;
+```
+
+### Usage
+
+```sql
+-- Generate description for a specific app
+CALL TEMP.OCHOY.GENERATE_APP_DESCRIPTION('SNOWFLAKE360.MM_ASSESSMENT.MATURITY_ASSESSMENT_V2');
+
+-- Example output:
+-- "The Snowflake 360 Maturity Assessment app evaluates an organization's maturity level 
+--  across various topics, providing a scorecard and recommendations for improvement."
+```
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| Cannot access stage | Permission denied or special stage type | Manual description needed |
+| App has minimal code | Stub/placeholder app | Manual description needed |
+| No source stage found | App uses non-standard deployment | Manual description needed |
+| AI generation failed | Token limit exceeded or API issue | Try again or use manual |
+
+---
+
+## 7. Scheduled Task
 
 Daily refresh at 6 AM UTC.
 
@@ -325,3 +471,4 @@ FROM TEMP.OCHOY.STREAMLIT_APPS_WITH_ORG;
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-02-19 | Initial working version with ACCESS_HISTORY creator detection |
+| 1.1 | 2026-02-20 | Added STREAMLIT_APP_METADATA table and GENERATE_APP_DESCRIPTION procedure |
