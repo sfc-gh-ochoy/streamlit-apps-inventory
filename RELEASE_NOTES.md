@@ -78,7 +78,7 @@ Each app row includes a "Go to App" link that opens the Streamlit app directly i
 
 ---
 
-## Admin Features (Oscar Choy)
+## Admin Features (Oliver Choy)
 
 ### AI Description Generator
 
